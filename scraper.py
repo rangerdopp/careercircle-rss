@@ -1,46 +1,68 @@
-import requests
+import asyncio
+from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from feedgenerator import Rss201rev2Feed
 import datetime
-import re
 
-url = "https://careercircle.com"
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9"
-}
+async def main():
+    url = "https://careercircle.com"
+    
+    async with async_playwright() as p:
+        # Launch a headless browser window
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        
+        # Go to the site and wait for the job list elements to load into view
+        print("Opening CareerCircle...")
+        await page.goto(url, wait_until="networkidle")
+        await page.wait_for_timeout(5000) # Give JavaScript an extra 5 seconds to load cards
+        
+        # Grab the fully rendered HTML page source
+        html = await page.content()
+        await browser.close()
 
-response = requests.get(url, headers=headers)
-soup = BeautifulSoup(response.text, 'html.parser')
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Initialize the RSS Feed
+    feed = Rss201rev2Feed(
+        title="CareerCircle - Remote Change Manager Jobs",
+        link=url,
+        description="Automated feed tracking the latest Remote Change Manager roles on CareerCircle",
+        language="en"
+    )
 
-feed = Rss201rev2Feed(
-    title="CareerCircle - Remote Change Manager Jobs",
-    link=url,
-    description="Automated feed tracking the latest Remote Change Manager roles on CareerCircle",
-    language="en"
-)
+    # Hunt for the specific job card containers or titles in the loaded DOM
+    # Looking for headings and bold texts that likely house titles
+    job_elements = soup.find_all(['h2', 'h3', 'h4', 'div', 'span'])
+    
+    seen_titles = set()
+    count = 0
+    
+    # Common job related keywords to filter from text scraps
+    keywords = ["change management", "change manager", "project manager", "enablement process"]
 
-job_titles = soup.find_all(text=re.compile(r'(Change Management|Change Manager|Project Manager)', re.IGNORECASE))
-seen_titles = set()
-count = 0
+    for el in job_elements:
+        text = el.get_text().strip()
+        # Ensure it matches our criteria, isn't a duplicate, and looks like a title length
+        if any(kw in text.lower() for kw in keywords) and len(text) < 80:
+            if text in seen_titles:
+                continue
+            seen_titles.add(text)
+            
+            feed.add_item(
+                title=text,
+                link=url,
+                description=f"Remote role listed on CareerCircle: {text}",
+                pubdate=datetime.datetime.now()
+            )
+            count += 1
+            if count >= 20:
+                break
 
-for element in job_titles:
-    if count >= 15:
-        break
-    parent = element.parent
-    if parent.name in ['a', 'h2', 'h3', 'h4', 'span']:
-        title_text = element.strip()
-        if title_text in seen_titles or len(title_text) > 100:
-            continue
-        seen_titles.add(title_text)
-        feed.add_item(
-            title=title_text,
-            link=url,
-            description=f"New Remote Position matching criteria found: {title_text}",
-            pubdate=datetime.datetime.now()
-        )
-        count += 1
+    # Save out the finished file
+    with open("feed.xml", "w", encoding="utf-8") as f:
+        feed.write(f, 'utf-8')
+    print(f"Successfully generated feed.xml with {count} jobs!")
 
-with open("feed.xml", "w", encoding="utf-8") as f:
-    feed.write(f, 'utf-8')
-print("Successfully generated feed.xml file!")
+if __name__ == "__main__":
+    asyncio.run(main())
