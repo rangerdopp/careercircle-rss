@@ -2,8 +2,8 @@ name: Update CareerCircle RSS Feed
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Runs automatically every 6 hours
-  workflow_dispatch: # Allows you to run it manually anytime
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   build-and-scrape:
@@ -19,9 +19,12 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install Dependencies
+    - name: Install Scraper Requirements
       run: |
-        pip install requests beautifulsoup4 feedgenerator
+        pip install beautifulsoup4 feedgenerator playwright
+        playwright install chromium
+        # Fix: Installs Linux system dependencies required for headless browsers
+        playwright install-deps 
 
     - name: Execute Scraper
       run: python scraper.py
@@ -29,5 +32,5 @@ jobs:
     - name: Commit and Deploy Feed
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
-        commit_message: 'Automated Feed Update: Sync Remote Change Manager Jobs'
+        commit_message: 'Automated Feed Update: Sync Remote Change Manager Jobs via Playwright'
         file_pattern: 'feed.xml'
